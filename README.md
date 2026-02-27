@@ -10,6 +10,7 @@ Amazon Selling Partner API(SP-API) Sandbox 데이터를 수집/저장/조회하�
 
 - SP-API Sandbox에서 주문 데이터를 조회
 - 조회한 주문 데이터를 PostgreSQL에 업서트(upsert)
+- 신규 주문 발생 시 Slack Webhook 알림 발송
 - API 엔드포인트로 주문/상태 정보를 조회
 - 향후 inventory, logs, scheduler 기능으로 확장 가능한 구조 제공
 
@@ -41,6 +42,7 @@ Amazon_Ops_Dashboard/
     services/
       spapi_client.py          # Amazon LWA 토큰 + Sandbox Orders API 호출
       etl_orders.py            # 주문 ETL 오케스트레이션
+      slack_notifier.py        # Slack Webhook 알림 전송
       etl_inventory.py         # inventory ETL 스텁
     workers/
       scheduler.py             # 배치 실행 진입점(단건 실행 함수)
@@ -62,6 +64,7 @@ Amazon_Ops_Dashboard/
 - `routes_orders.py`
   - `GET /orders/`: DB에 저장된 주문 목록 반환
   - `POST /orders/sync-sandbox`: 주문 ETL 실행 트리거
+  - 설정/외부 API 오류를 의미 있는 HTTP 상태코드로 변환
 - `routes_inventory.py`, `routes_logs.py`
   - 현재 빈 목록을 반환하는 스텁
 
@@ -74,7 +77,12 @@ Amazon_Ops_Dashboard/
 - `etl_orders.py`
   - SP-API에서 주문 목록 가져오기
   - 주문별 upsert 수행
+  - `DEMO_MODE=true`일 때 synthetic 주문 1건 추가 생성
+  - 신규(`amazon_order_id` 기준) 주문만 Slack 알림 발송
   - 트랜잭션 commit/rollback 처리
+- `slack_notifier.py`
+  - Slack Incoming Webhook으로 신규 주문 알림 전송
+  - 알림 실패 시 ETL은 계속 진행
 
 ### 3.3 데이터 레이어 (`app/db`)
 
@@ -85,6 +93,7 @@ Amazon_Ops_Dashboard/
 - `crud.py`
   - SP-API datetime 문자열 파싱
   - `upsert_order()`로 `amazon_order_id` 기준 업서트
+  - 신규 생성 여부를 함께 반환해 중복 알림 방지에 사용
   - `list_orders()` 조회
 
 ### 3.4 워커 레이어 (`app/workers`)
@@ -107,7 +116,8 @@ Amazon_Ops_Dashboard/
 2. API 레이어가 `run_orders_etl()` 실행
 3. ETL이 `SPAPIClient`를 통해 LWA 토큰 발급 후 주문 데이터 조회
 4. ETL이 `crud.upsert_order()`로 DB에 업서트
-5. 커밋 후 `{fetched, upserted}` 결과 반환
+5. 신규 주문만 Slack 알림 발송
+6. 커밋 후 `{fetched, upserted, demo_generated}` 결과 반환
 
 ```text
 [Client]
@@ -121,6 +131,8 @@ Amazon_Ops_Dashboard/
    |                     -> [SPAPIClient] -> Amazon LWA + SP-API Sandbox
    v
 [CRUD Upsert]
+   |
+   +--> [Slack Webhook] (신규 주문만)
    |
    v
 [PostgreSQL orders 테이블]
@@ -141,13 +153,15 @@ Amazon_Ops_Dashboard/
 # App
 APP_NAME=Amazon Ops Dashboard
 ENVIRONMENT=local
+DEMO_MODE=false
 
 # PostgreSQL
+DATABASE_URL=
 DB_HOST=localhost
 DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=amazon_ops
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
 
 # LWA / SP-API Sandbox
 SPAPI_CLIENT_ID=
@@ -155,12 +169,37 @@ SPAPI_CLIENT_SECRET=
 SPAPI_REFRESH_TOKEN=
 SPAPI_SANDBOX_ENDPOINT=https://sandbox.sellingpartnerapi-na.amazon.com
 SPAPI_MARKETPLACE_ID=ATVPDKIKX0DER
+
+# Slack Incoming Webhook
+SLACK_WEBHOOK_URL=
 ```
 
 주의:
 
 - `POST /orders/sync-sandbox`를 실제로 사용하려면 SP-API 관련 3개 자격 증명이 반드시 필요합니다.
 - `docker-compose.yml`은 `env_file: .env`를 사용하므로 `.env` 파일이 없으면 실행 실패할 수 있습니다.
+- `DATABASE_URL`이 설정되면 `DB_HOST/PORT/USER/PASSWORD/NAME`보다 우선 적용됩니다.
+- Supabase 같은 외부 PostgreSQL은 `DATABASE_URL` 사용을 권장합니다.
+- `DEMO_MODE=true`일 때는 샌드박스 응답 처리 후 synthetic 주문 1건을 추가로 생성합니다.
+
+### 5.1 Sandbox 정적 응답 제약과 DEMO_MODE
+
+SP-API Sandbox Orders는 패턴 매칭 기반의 정적 테스트 케이스를 반환하므로, 동일 케이스 호출 시 신규 주문이 계속 생성되지 않습니다.
+
+이 제약 때문에 데모 시나리오를 위해 `DEMO_MODE`를 제공합니다.
+
+- `DEMO_MODE=false` (기본값)
+  - 샌드박스 원본 주문만 upsert
+- `DEMO_MODE=true`
+  - 샌드박스 주문 upsert 이후 synthetic 주문(테스트/데모를 위해 인위적으로 만든 가짜 주문) 1건 생성
+  - 생성 규칙:
+    - `amazon_order_id`: `DEMO-<UTC timestamp>`
+    - `order_status`: `Pending`
+  - synthetic 주문도 동일한 파이프라인을 사용:
+    - upsert (`amazon_order_id` 유니크 기준)
+    - 신규 주문 이벤트 처리
+    - Slack 알림 발송
+  - 즉, static sandbox 제약이 있어도 신규 주문 -> DB -> 알림까지 라이브 데모 가능
 
 ## 6) 실행 방법
 
@@ -237,6 +276,7 @@ docker compose down -v
   - 저장된 주문 목록 조회
 - `POST /orders/sync-sandbox`
   - SP-API Sandbox 주문 동기화 실행
+  - 신규 주문은 Slack 알림도 함께 발송
 - `GET /inventory/`
   - 스텁 (빈 배열)
 - `GET /logs/`
@@ -330,7 +370,8 @@ Invoke-RestMethod -Method Get -Uri http://localhost:8000/orders/
 ```json
 {
   "fetched": 5,
-  "upserted": 5
+  "upserted": 6,
+  "demo_generated": 1
 }
 ```
 
@@ -357,15 +398,19 @@ Invoke-RestMethod -Method Get -Uri http://localhost:8000/orders/
   - `pip install -r requirements.txt` 재실행
 
 - `DB 연결 실패` 시:
+  - 외부 DB를 쓰면 `.env`의 `DATABASE_URL` 우선 확인
   - `.env`의 DB_HOST/PORT/USER/PASSWORD/DB_NAME 확인
   - Docker 사용 시 `api` 컨테이너에서는 `DB_HOST=db`여야 함
+  - 비밀번호에 특수문자가 있으면 URL 인코딩 필요
 
 - `Missing SP-API credentials` 에러 시:
   - `.env`에 `SPAPI_CLIENT_ID`, `SPAPI_CLIENT_SECRET`, `SPAPI_REFRESH_TOKEN` 입력
 
+- `sync-sandbox`가 `503`을 반환할 때:
+  - SP-API 자격 증명이 누락되었는지 확인
+
+- `sync-sandbox`가 `502`를 반환할 때:
+  - Amazon LWA/SP-API 응답 상태와 네트워크 연결 확인
+
 - `sync-sandbox`가 빈 결과를 반환할 때:
   - Sandbox 테스트 케이스/Marketplace ID/권한 설정 확인
-
-## 12) 라이선스
-
-내부 프로젝트로 가정되어 별도 라이선스 파일은 포함하지 않았습니다. 필요 시 `LICENSE`를 추가하세요.

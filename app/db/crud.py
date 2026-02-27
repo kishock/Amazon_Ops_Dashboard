@@ -12,9 +12,10 @@ def _parse_spapi_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized).astimezone(timezone.utc)
 
 
-def upsert_order(db: Session, order_payload: dict) -> Order:
+def upsert_order(db: Session, order_payload: dict) -> tuple[Order, bool]:
     amazon_order_id = order_payload["AmazonOrderId"]
     existing = db.query(Order).filter(Order.amazon_order_id == amazon_order_id).one_or_none()
+    created = existing is None
 
     if existing is None:
         existing = Order(amazon_order_id=amazon_order_id, raw_payload=order_payload)
@@ -25,7 +26,7 @@ def upsert_order(db: Session, order_payload: dict) -> Order:
     existing.last_update_date = _parse_spapi_datetime(order_payload.get("LastUpdateDate"))
     existing.raw_payload = order_payload
     existing.synced_at = datetime.utcnow()
-    return existing
+    return existing, created
 
 
 def list_orders(db: Session, limit: int = 100) -> list[Order]:

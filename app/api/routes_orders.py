@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+import requests
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.crud import list_orders
@@ -30,4 +31,20 @@ def get_orders(db: Session = Depends(get_db)) -> dict[str, list[dict]]:
 
 @router.post("/sync-sandbox")
 def sync_sandbox_orders(db: Session = Depends(get_db)) -> dict[str, int]:
-    return run_orders_etl(db)
+    try:
+        return run_orders_etl(db)
+    except RuntimeError as exc:
+        if "Missing SP-API credentials" in str(exc):
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise
+    except requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        raise HTTPException(
+            status_code=502,
+            detail=f"SP-API request failed with status {status_code}",
+        ) from exc
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"SP-API request failed: {exc.__class__.__name__}",
+        ) from exc
