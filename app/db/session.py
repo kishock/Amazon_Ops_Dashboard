@@ -1,9 +1,18 @@
-"""
-Provides a database session generator for dependency injection.
-The real implementation would yield a SQLAlchemy session or similar.
-"""
 from collections.abc import Generator
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
-def get_db() -> Generator[None, None, None]:
-    yield
+from app.core.config import settings
+
+engine = create_engine(settings.database_url, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
+Base = declarative_base()
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

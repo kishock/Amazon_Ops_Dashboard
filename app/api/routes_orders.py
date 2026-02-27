@@ -1,12 +1,33 @@
-"""
-Router for order management endpoints.
-Currently a placeholder returning an empty order list.
-"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.db.crud import list_orders
+from app.db.session import get_db
+from app.services.etl_orders import run_orders_etl
 
 router = APIRouter()
 
 
 @router.get("/")
-def list_orders() -> dict[str, list]:
-    return {"orders": []}
+def get_orders(db: Session = Depends(get_db)) -> dict[str, list[dict]]:
+    rows = list_orders(db)
+    return {
+        "orders": [
+            {
+                "id": row.id,
+                "amazon_order_id": row.amazon_order_id,
+                "order_status": row.order_status,
+                "purchase_date": row.purchase_date.isoformat() if row.purchase_date else None,
+                "last_update_date": row.last_update_date.isoformat()
+                if row.last_update_date
+                else None,
+                "synced_at": row.synced_at.isoformat() if row.synced_at else None,
+            }
+            for row in rows
+        ]
+    }
+
+
+@router.post("/sync-sandbox")
+def sync_sandbox_orders(db: Session = Depends(get_db)) -> dict[str, int]:
+    return run_orders_etl(db)
