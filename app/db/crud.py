@@ -31,3 +31,9 @@ def upsert_order(db: Session, order_payload: dict) -> tuple[Order, bool]:
 
 def list_orders(db: Session, limit: int = 100) -> list[Order]:
     return db.query(Order).order_by(Order.id.desc()).limit(limit).all()
+
+
+def delete_all_orders(db: Session) -> int:
+    deleted_count = db.query(Order).delete(synchronize_session=False)
+    db.commit()
+    return deleted_count

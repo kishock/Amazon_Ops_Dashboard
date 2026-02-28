@@ -2,7 +2,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db.crud import list_orders
+from app.db.crud import delete_all_orders, list_orders
 from app.db.session import get_db
 from app.services.etl_orders import run_orders_etl
 
@@ -48,3 +48,9 @@ def sync_sandbox_orders(db: Session = Depends(get_db)) -> dict[str, int]:
             status_code=502,
             detail=f"SP-API request failed: {exc.__class__.__name__}",
         ) from exc
+
+
+@router.delete("/delete-all")
+def delete_all_orders_api(db: Session = Depends(get_db)) -> dict[str, int]:
+    deleted = delete_all_orders(db)
+    return {"deleted": deleted}
