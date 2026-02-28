@@ -15,10 +15,17 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _as_csv_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
+
+
 @dataclass
 class Settings:
     app_name: str = os.getenv("APP_NAME", "Amazon Ops Dashboard")
     environment: str = os.getenv("ENVIRONMENT", "local")
+    cors_allowed_origins_env: str = os.getenv("CORS_ALLOWED_ORIGINS", "")
     database_url_env: str = os.getenv("DATABASE_URL", "")
     db_host: str = os.getenv("DB_HOST", "localhost")
     db_port: int = int(os.getenv("DB_PORT", "5432"))
@@ -48,6 +55,10 @@ class Settings:
             "postgresql+psycopg://"
             f"{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        return _as_csv_list(self.cors_allowed_origins_env)
 
 
 settings = Settings()
