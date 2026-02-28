@@ -7,7 +7,7 @@ from app.api.routes_logs import router as logs_router
 from app.api.routes_orders import router as orders_router
 from app.core.config import settings
 from app.db import models  # noqa: F401
-from app.db.session import Base, engine
+from app.db.session import Base, engine, ensure_orders_extension_columns
 
 
 def create_app() -> FastAPI:
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def _startup() -> None:
         Base.metadata.create_all(bind=engine)
+        ensure_orders_extension_columns()
 
     return app
 

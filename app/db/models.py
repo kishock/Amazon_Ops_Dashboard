@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Integer, String
+from sqlalchemy import JSON, DateTime, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -12,6 +12,9 @@ class Order(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     amazon_order_id: Mapped[str] = mapped_column(String(30), unique=True, index=True)
     order_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    buyer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     purchase_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_update_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

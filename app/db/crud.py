@@ -22,6 +22,9 @@ def upsert_order(db: Session, order_payload: dict) -> tuple[Order, bool]:
         db.add(existing)
 
     existing.order_status = order_payload.get("OrderStatus")
+    existing.buyer = order_payload.get("Buyer")
+    existing.amount = order_payload.get("Amount")
+    existing.cost = order_payload.get("Cost")
     existing.purchase_date = _parse_spapi_datetime(order_payload.get("PurchaseDate"))
     existing.last_update_date = _parse_spapi_datetime(order_payload.get("LastUpdateDate"))
     existing.raw_payload = order_payload

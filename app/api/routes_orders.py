@@ -23,6 +23,9 @@ def get_orders(db: Session = Depends(get_db)) -> dict[str, list[dict]]:
                 if row.last_update_date
                 else None,
                 "synced_at": row.synced_at.isoformat() if row.synced_at else None,
+                "Buyer": row.buyer,
+                "Amount": row.amount,
+                "Cost": row.cost,
             }
             for row in rows
         ]
@@ -30,7 +33,9 @@ def get_orders(db: Session = Depends(get_db)) -> dict[str, list[dict]]:
 
 
 @router.post("/sync-sandbox")
-def sync_sandbox_orders(db: Session = Depends(get_db)) -> dict[str, int]:
+def sync_sandbox_orders(
+    db: Session = Depends(get_db),
+) -> dict[str, int | list[dict[str, str | float | None]]]:
     try:
         return run_orders_etl(db)
     except RuntimeError as exc:
